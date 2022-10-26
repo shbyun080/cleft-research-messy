@@ -1,10 +1,8 @@
 import tensorflow as tf
 from tensorflow import keras
 
-
 def relu(inputs):
     return keras.layers.ReLU()(inputs)
-
 
 def conv_2d(inputs, channels, kernel_size=3, strides=1, batch_normalization=True, activation=None, padding='same',
             kernel_initializer=tf.random_normal_initializer(stddev=0.01)):
@@ -18,7 +16,6 @@ def conv_2d(inputs, channels, kernel_size=3, strides=1, batch_normalization=True
         output = activation(output)
 
     return output
-
 
 def down_sampling(input, method='strided_convolution', rate=2, name='', activation=relu):
     if method == 'strided_convolution':
@@ -35,7 +32,6 @@ def down_sampling(input, method='strided_convolution', rate=2, name='', activati
         output = keras.layers.MaxPool2D(input, pool_size=rate, strides=rate, name=name + '_max_pooling')
 
     return output
-
 
 def up_sampling(input, channels, rate=2, name='', activation=relu):
     _, x, y, _ = input.get_shape()
@@ -79,7 +75,6 @@ def exchange_between_stage(inputs):
     one_subnetwork = down_sampling(inputs[-1], rate=2)
     outputs.append(one_subnetwork)
     return outputs
-
 
 def residual_unit_bottleneck(input, channels=64):
     """
