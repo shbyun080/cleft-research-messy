@@ -1,6 +1,8 @@
 /.idea/
-/data/cleft
-/data/300w
-/data/aflw
+/data/cleft/
+/data/300w/
+/data/aflw/
+/data/imagenet/
 /degradation/0.1/saved_weights/
 /rectify/weights/
+/torch_hrnet/weights/

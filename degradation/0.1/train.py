@@ -30,11 +30,11 @@ def train(model: keras.Model, x=None, y=None, training=True, t_ds=None, v_ds=Non
     ]
 
     lr_schedule = keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-3,
+        initial_learning_rate=1e-4,
         decay_steps=10000,
         decay_rate=0.92)
 
-    optim = keras.optimizers.Adam(learning_rate=0.0001)
+    optim = keras.optimizers.Adam(learning_rate=lr_schedule)
 
     if continue_train:
         model.load_weights(checkpoint_filepath+"model.h5py")
@@ -47,7 +47,7 @@ def train(model: keras.Model, x=None, y=None, training=True, t_ds=None, v_ds=Non
     for layer in model.layers:
         layer.trainable = True
 
-    with tf.device('/gpu:0'):
+    with tf.device('/gpu:1'):
         if t_ds==None:
             print("None-Dataset Training")
             train_x, val_x = x
@@ -111,11 +111,11 @@ if __name__ == "__main__":
     v_ds = v_ds.batch(batch_size=1)
 
     # training_model = create_resnet()
-    training_model = HRNet_Keypoint(num_features=68)
+    # training_model = HRNet_Keypoint(num_features=68)
     # training_model = DegradeNet()
-    # training_model = Net()
+    training_model = Net()
     # training_model = degradation2.DegradationDeepHRNet()
     # training_model.plot_model()
     print(training_model.summary(nested=False))
     # train(training_model, x=(t_x, v_x), y=(t_y, v_y))
-    train(training_model, t_ds=t_ds, v_ds=v_ds, continue_train=False)
+    # train(training_model, t_ds=t_ds, v_ds=v_ds, continue_train=False)

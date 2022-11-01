@@ -8,13 +8,19 @@ import numpy as np
 import config as cfg
 
 
-def test():
+def test(test_checkpoint=True):
     evaluate = False
 
-    model_path = cfg.MODEL_PATH
-    img_w, img_h = cfg.IMG_SHAPE
+    checkpoint_path = cfg.MODEL_PATH_CKPT+'.h5py'
+    model_path = cfg.MODEL_PATH+'.h5py'
+    img_w, img_h, _ = cfg.INPUT_SHAPE
 
-    model = keras.load_model(model_path)
+    if test_checkpoint:
+        model = keras.models.load_model(checkpoint_path)
+    else:
+        model = keras.models.load_model(model_path)
+
+    print(model.summary())
 
     # TODO load images & labels
     images = []

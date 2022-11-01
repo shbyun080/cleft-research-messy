@@ -3,61 +3,68 @@ os.add_dll_directory("C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v11.2/b
 
 import tensorflow as tf
 from tensorflow import keras
+import numpy as np
+import matplotlib.pyplot as plt
 
 import config as cfg
 import load_data
 import model as mdl
+import heatmap
+from hrnet import HRNet_Keypoint, TestNet
+from util import load_imagenet, load_aflw, get_transfer_head, get_optimizer
 
 
-def load_aflw(width, height):
-    # Load labeled dataset
-    t_x, t_y, v_x, v_y = load_data.load_aflw_train()
-
-    # Flatten labels
-    t_y = tf.reshape(t_y, [t_y.shape[0], -1])
-    v_y = tf.reshape(v_y, [v_y.shape[0], -1])
-
-    # Resize images
-    t_x = tf.image.resize(t_x, [width, height])
-    v_x = tf.image.resize(v_x, [width, height])
-
-    # Normalize images
-    t_x = tf.cast(t_x, tf.float32) / 255.0
-    v_x = tf.cast(v_x, tf.float32) / 255.0
-
-    # Generate dataset from images and labels
-    t_ds = tf.data.Dataset.from_tensor_slices((t_x, t_y))
-    v_ds = tf.data.Dataset.from_tensor_slices((v_x, v_y))
-
-    return t_ds, v_ds
-
-
-def get_transfer_head(model_output, num_features, model='resnet'):
-    x = keras.layers.GlobalAveragePooling2D()(model_output)
-    x = keras.layers.Dense(num_features)(x)
-    return x
-
-
-def train(load_trained=False, model='resnet', dataset='aflw', transfer=False):
+def train(load_trained=False, model='hrnet', dataset='aflw', transfer=False, summary=False, verbose=0):
     assert load_trained or not transfer, f'Pretrained model needed for transfer learning'
-    assert model in ['resnet'], f'ERROR: Invalid Model: {model}'
-    assert dataset in ['aflw'], f'ERROR: Invalid Dataset: {dataset}'
+    assert model in ['resnet', 'hrnet', 'hrnet_imagenet', 'test'], f'ERROR: Invalid Model: {model}'
+    assert dataset in ['aflw', 'imagenet', 'dry'], f'ERROR: Invalid Dataset: {dataset}'
+    assert cfg.LOSS_FUNCTION in ['categorical', 'mse'], f'ERROR: Invalid Loss Function: {cfg.LOSS_FUNCTION}'
 
     # Configs
-    model_path = cfg.MODEL_PATH
+    checkpoint_path = cfg.MODEL_PATH_CKPT+'.h5py'
+    model_path = cfg.MODEL_PATH+'.h5py'
     img_w, img_h, _ = cfg.INPUT_SHAPE
     epoch = cfg.NUM_EPOCH
-    batch_size = cfg.BATCH_SIZE
+
+    if verbose > 0:
+        print("Loading dataset...")
 
     # Fetch dataset
-    if dataset=='aflw':
-        training_dataset, validation_dataset = load_aflw(img_w, img_h)
+    if dataset == 'aflw':
+        training_dataset, validation_dataset = load_aflw(img_w, img_h, return_score=cfg.AFLW_SCORE, use_small=cfg.AFLW_SMALL)
+    elif dataset == 'imagenet':
+        training_dataset, validation_dataset = load_imagenet(img_w, img_h, val_size=cfg.IMAGENET_VAL_SIZE, normalize=cfg.IMAGENET_NORMALIZE_CPU)
+        if verbose > 1:
+            plt.figure(figsize=(10, 10))
+            for images, labels in training_dataset.take(1):
+                for i in range(9):
+                    plt.subplot(3, 3, i + 1)
+                    plt.imshow(images[i])
+                    plt.axis("off")
+                plt.show()
+    else:
+        pass
+
+    if verbose > 0:
+        print("Loaded Dataset")
+
+    if verbose > 0:
+        print("Loading Model...")
 
     # Load trained model if needed
     if load_trained:
         model = keras.load_model(model_path)
     elif model == 'resnet':
-        model = mdl.create_resnet(cfg.INPUT_SHAPE, 18)
+        model = mdl.create_resnet(cfg.INPUT_SHAPE, 68)
+    elif model == 'hrnet':
+        model = mdl.create_hrnet(cfg.INPUT_SHAPE, 68)
+    elif model == 'hrnet_imagenet':
+        if cfg.IMAGENET_NORMALIZE_CPU:
+            model = mdl.create_hrnet_imagenet(cfg.INPUT_SHAPE, 1000)
+        else:
+            model = mdl.create_hrnet_imagenet_with_preprocess(cfg.INPUT_SHAPE, 1000)
+    elif model == 'test':
+        model = TestNet()
 
     # Freeze layers if transfer learning is enabled
     if transfer:
@@ -71,11 +78,23 @@ def train(load_trained=False, model='resnet', dataset='aflw', transfer=False):
         for layer in model.layers:
             layer.trainable = True
 
+    if verbose > 0:
+        print("Loaded Model")
+
+    if summary:
+        if cfg.TRAIN_PRINT_MODEL_NESTED:
+            print(model.summary(nested=cfg.TRAIN_PRINT_MODEL_NESTED))
+        else:
+            print(model.summary())
+
+    optim, lr_scheduler = get_optimizer()
+
     # Setup callbacks
     callbacks = [
+        lr_scheduler,
         keras.callbacks.EarlyStopping(monitor='loss', patience=7, verbose=1),
         tf.keras.callbacks.ModelCheckpoint(
-            filepath=model_path,
+            filepath=checkpoint_path,
             save_weights_only=False,
             monitor='loss',
             mode='min',
@@ -83,24 +102,22 @@ def train(load_trained=False, model='resnet', dataset='aflw', transfer=False):
             verbose=1)
     ]
 
-    # Set learning schedule & optimizer
-    lr_schedule = keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=1e-3,
-        decay_steps=10000,
-        decay_rate=0.9)
-    optim = keras.optimizers.Adam(learning_rate=lr_schedule)
+    if cfg.LOSS_FUNCTION == 'categorical':
+        loss = keras.losses.CategoricalCrossentropy()
+    elif cfg.LOSS_FUNCTION == 'mse':
+        loss = keras.losses.MeanSquaredError()
 
     # Compile the model
     model.compile(optim,
-                  loss=keras.losses.MeanSquaredError(),
-                  metrics=['accuracy', 'mse'])
+                  loss,
+                  metrics=['accuracy'])
     model.trainable = True
 
     # Train the model and save
-    with tf.device('/gpu:0'):
-        model.fit(training_dataset, validation_data=validation_dataset, epochs=epoch, batch_size=batch_size, callbacks=callbacks)
-        model.save(model_path+"model.h5py")
+    with tf.device(f'/gpu:{cfg.GPU_NUM}'):
+        model.fit(training_dataset, validation_data=validation_dataset, epochs=epoch, callbacks=callbacks, batch_size=cfg.BATCH_SIZE)
+        model.save(model_path)
 
 
 if __name__ == "__main__":
-    train()
+    train(model=cfg.TRAIN_MODEL, dataset=cfg.TRAIN_DATASET, summary=cfg.TRAIN_PRINT_MODEL, verbose=1)
