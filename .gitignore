@@ -6,3 +6,4 @@
 /degradation/0.1/saved_weights/
 /rectify/weights/
 /torch_hrnet_rectify/weights/
+/torch_resnet/weights/
