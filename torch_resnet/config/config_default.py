@@ -1,13 +1,12 @@
 from yacs.config import CfgNode as CN
 
-
 _C = CN()
 
 _C.PRETRAINED = CN()
 _C.PRETRAINED.PATH_300W = './weights/HR18-300W.pth'
 _C.PRETRAINED.PATH_IMAGENET = './weights/hrnetv2_w18_imagenet_pretrained.pth'
-_C.PRETRAINED.PATH_CLEFT = './weights/cleft/0.5/HR18-cleft.pth'
-#_C.PRETRAINED.PATH_CLEFT = './weights/cleft/0.2/checkpoint_500.pth'
+_C.PRETRAINED.PATH_CLEFT = './weights/cleft/0.5/wing_cleft.pth'
+# _C.PRETRAINED.PATH_CLEFT = './weights/cleft/0.2/checkpoint_500.pth'
 
 _C.TRAIN = CN()
 _C.TRAIN.EPOCH = 6000
@@ -18,7 +17,7 @@ _C.TRAIN.PRETRAINED = False
 
 _C.DATA = CN()
 _C.DATA.IMAGE_DIR = '../data/cleft/images/'
-_C.DATA.LABEL_FILE = '../data/cleft/labels/cleft_09_28_2022.csv'
+_C.DATA.LABEL_FILE = '../data/cleft/labels/cleft_11_23_2022.csv'
 _C.DATA.TARGET = [[29.932584762573242, 117.27340698242188],
                   [32.0, 135.19100952148438],
                   [36.134830474853516, 153.04869079589844],

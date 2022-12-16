@@ -8,18 +8,18 @@ import PIL.Image as Image
 import matplotlib.pyplot as plt
 
 
-class Cleft(Dataset):
+class WFLW(Dataset):
     def __init__(self, type, transform=None, target_transform=None, size=(256, 256)):
-        self.img_dir = "../data/cleft/train3/images/"
-        self.labels_dir = "../data/cleft/train3/landmarks/"
+        self.img_dir = "../data/WFLW_train/images/"
+        self.labels_dir = "../data/WFLW_train/landmarks/"
 
         self.size = size
 
         self.img_labels = os.listdir(self.img_dir)
         if type == 'train':
-            self.img_labels = self.img_labels[:83]
+            self.img_labels = self.img_labels[:7000]
         else:
-            self.img_labels = self.img_labels[83:]
+            self.img_labels = self.img_labels[7000:]
 
         self.transform = transforms.Compose([
             transforms.ToTensor(),
@@ -33,18 +33,15 @@ class Cleft(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.img_dir + self.img_labels[idx]
-        image = Image.open(img_path)\
+        image = Image.open(img_path)
+        width, height = image.size
 
         image = image.resize(self.size)
 
         label_path = self.labels_dir + self.img_labels[idx][:-4] + '.pts.npy'
         label = np.load(label_path)
-
-        # plt.imshow(image)
-        # for x,y in label:
-        #     plt.plot(x*256,y*256,'r.',markersize=2)
-        # plt.show()
-
+        label[:, 0] = label[:, 0]/width
+        label[:, 1] = label[:, 1]/height
         label = label.flatten()
 
         if self.transform:
@@ -55,5 +52,4 @@ class Cleft(Dataset):
 
 
 if __name__ == "__main__":
-    dataset = Cleft(type='train')
-    print(len(dataset))
+    dataset = WFLW(type='train')

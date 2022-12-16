@@ -8,12 +8,11 @@ from PIL import Image
 import warnings
 # warnings.filterwarnings("ignore")
 
-from load_pretrained import get_cleft_model
 from config import config as cfg
 from affine import get_rectified_images
-from heatmap import to_heatmap, decode_preds
 from utils import interocular_nme, prepare_input, crop
-from data import get_cleft_data, transform_labels, get_cleft_target
+from data_load import get_cleft_data, transform_labels, get_cleft_target
+from model import get_cnn6_pretrained, get_pretrained_model, wing_loss
 
 
 def save_checkpoint(states, predictions, is_best,
@@ -78,6 +77,7 @@ def train():
         images[i] = img
         for j in range(len(labels[i])):
             labels[i][j] = transform_labels(labels[i][j], center, scale)
+        labels[i] = labels[i].flatten()
         centers.append(center)
         scales.append(scale)
 
@@ -87,60 +87,41 @@ def train():
     #     plt.plot(x, y, 'r.')
     # plt.show()
 
-    print("Generating heatmaps...")
-    # generate heatmap
-    targets = to_heatmap(np.array(labels)/256)
-
-    # re_target = torch.Tensor(targets[5])
-    # re_target = re_target.unsqueeze(0)
-    # re_labels = decode_preds(re_target, [centers[5]], [scales[5]], transform_coords=False)
-    # plt.imshow(np.moveaxis(images[5][0].cpu().detach().numpy(), 0, -1))
-    # for x, y in re_labels[0]:
-    #     print(x,y)
-    #     plt.plot(4*x, 4*y, 'r.')
-    # plt.show()
-
     print("Setting parameters...")
     # Split datasets
     tv_split = 30
-    train_images, train_targets, train_labels = images[:tv_split], targets[:tv_split], labels[:tv_split]
-    valid_images, valid_targets, valid_labels, valid_centers, valid_scales, valid_eyes = images[tv_split:], targets[tv_split:], labels[tv_split:], centers[tv_split:], scales[tv_split:], eyes[tv_split:]
+    train_images, train_labels = images[:tv_split], labels[:tv_split]
+    valid_images, valid_labels, valid_centers, valid_scales, valid_eyes = images[tv_split:], labels[tv_split:], centers[tv_split:], scales[tv_split:], eyes[tv_split:]
 
-    model = get_cleft_model(pretrained=cfg.TRAIN.PRETRAINED)
+    model = get_pretrained_model(device=torch.device("cuda:1"))
     model.train()
 
-    criterion = nn.MSELoss(size_average=True)
-    optimizer = optim.Adam(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=0.0001
-    )
-
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, cfg.TRAIN.LR_STEPS, 0.1, -1)
+    criterion = wing_loss
+    optimizer = optim.SGD(model.parameters(), lr=3e-5, weight_decay=5e-4, momentum=0.9)
 
     print(f"Begin Training with epoch: {cfg.TRAIN.EPOCH}")
 
     best_nme = None
+    batch_size = 4
     for epoch in range(cfg.TRAIN.EPOCH):
-        lr_scheduler.step()
-
         running_loss = 0
 
         print(f"Training: {epoch+1}/{cfg.TRAIN.EPOCH}")
         # TRAINING LOOP
         model.train()
         for i in range(len(train_images)):  # train_len = ceil(len(train)/batch_size)
-            end = i+4
-            if i+4>=len(train_images):
+            end = i+batch_size
+            if i+batch_size>=len(train_images):
                 end = len(train_images)
 
             img_batch = []
             target_batch = []
             for j in range(i, end):
                 img = train_images[j]
-                img.to("cuda:0")
+                img.to("cuda:1")
                 img.cuda()
 
-                tgt = train_targets[j]
+                tgt = train_labels[j]
                 tgt = torch.Tensor(tgt)
                 tgt = tgt.unsqueeze(0)
 
@@ -172,7 +153,7 @@ def train():
         for i in range(len(valid_images)):
             img_batch = valid_images[i]
 
-            target_batch = valid_targets[i]
+            target_batch = valid_labels[i]
             target_batch = torch.Tensor(target_batch)
             target_batch = target_batch.unsqueeze(0)
 
@@ -182,15 +163,10 @@ def train():
             loss = criterion(outputs, target_batch)
             running_loss += loss
 
-            preds = decode_preds(outputs, [valid_centers[i]], [valid_scales[i]])  # get change attribs from post-affine prepare_image
+            outputs = outputs.cpu().detach().numpy()[0]
+            outputs = np.reshape(outputs, (-1, 2))
 
-            # if epoch%500==0 and i == 0:
-            #     f, ax = plt.subplots(1, 21)
-            #     for j, score in enumerate(outputs[0].cpu().detach().numpy()):
-            #         ax[j].imshow(score)
-            #     plt.show()
-
-            nme += interocular_nme(preds, [valid_labels[i]], [valid_eyes[i]])[0]  # get eyes from 300w prediction
+            nme += interocular_nme([outputs], [valid_labels[i]], [valid_eyes[i]])[0]  # get eyes from 300w prediction
 
         nme /= len(valid_images)
         print(f"nme: {nme}, loss: {running_loss/len(valid_images)}")

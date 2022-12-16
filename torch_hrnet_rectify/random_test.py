@@ -91,4 +91,4 @@ def test_affine():
 
 
 if __name__ == '__main__':
-    test_300w()
+    test_affine()

@@ -39,8 +39,12 @@ def get_cleft_data():
     return images, labels
 
 
-def get_cleft_target():
-    return cfg.DATA.TARGET
+def get_cleft_target(im_shape=(256,256)):
+    target = np.asarray(cfg.DATA.TARGET)
+    for i in range(len(target)):
+        target[i][0] = target[i][0]/256*im_shape[0]
+        target[i][1] = target[i][1]/256*im_shape[1]
+    return target
 
 
 def transform_labels(label, center, scale):

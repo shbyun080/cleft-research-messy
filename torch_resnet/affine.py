@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage.transform import PiecewiseAffineTransform, warp, resize
+from skimage.transform import PiecewiseAffineTransform, warp, resize, warp_coords, SimilarityTransform
+from scipy.ndimage import map_coordinates
 from skimage import data
 from PIL import Image
 
@@ -8,13 +9,14 @@ import load_pretrained
 import heatmap
 from utils import prepare_input
 from detector import FaceDetector
+from model import get_pretrained_model
 
 
 def affine(img, src, dst):
     tform = PiecewiseAffineTransform()
     tform.estimate(src, dst)
 
-    out = warp(img, tform.inverse, output_shape=(img.shape[0], img.shape[1]))
+    out = warp(img, tform.inverse)
     return out, tform
 
 
@@ -22,13 +24,13 @@ def reverse_affine(source, tform):
     return tform.inverse(source)
 
 
-def detection_net(img_paths, name='300w', is_file=False, get_bbox=False):
+def detection_net(img_paths, name='300w', is_file=False, get_bbox=False, get_eyes=False, im_shape=(256,256)):
     assert name in ['300w', 'cleft'], f'Invalid model name: {name}'
 
     if name == '300w':
         model = load_pretrained.load_hrnet('300w')
     elif name == 'cleft':
-        model = load_pretrained.load_hrnet('cleft')
+        model = get_pretrained_model()
     model.eval()
 
     outputs = []
@@ -59,21 +61,25 @@ def detection_net(img_paths, name='300w', is_file=False, get_bbox=False):
         preds = model(img).cpu()
 
         preds = heatmap.decode_preds(preds, [center], [scale]).numpy()
-        preds[:, :, 0] = preds[:, :, 0] * (256 / x)
-        preds[:, :, 1] = preds[:, :, 1] * (256 / y)
+        preds[:, :, 0] = preds[:, :, 0] * (im_shape[0] / x)
+        preds[:, :, 1] = preds[:, :, 1] * (im_shape[1] / y)
+        # print(",\n".join([f"[{x}, {y}]" for x, y in preds[0][:27]]))
         outputs.append(preds[0])
 
     if get_bbox:
+        if get_eyes:
+            eyes = [([(i[37][0]+i[40][0])/2, (i[37][1]+i[40][1])/2], [(i[43][0]+i[46][0])/2, (i[43][1]+i[46][1])/2]) if i is not None else None for i in outputs]
+            return outputs, bboxs, eyes
         return outputs, bboxs
     else:
         return outputs
 
 
-def affine_transform(imgs, sources, target):
+def affine_transform(imgs, sources, target, im_shape=(256,256)):
     default_pts = np.array([[0, 0],
-                            [0, 256],
-                            [256, 0],
-                            [256, 256]], dtype='float32')
+                            [0, im_shape[1]-1],
+                            [im_shape[0]-1, 0],
+                            [im_shape[0]-1, im_shape[1]-1]], dtype='float32')
 
     outputs = []
     transforms = []
@@ -104,7 +110,7 @@ def get_midpoint(p1, p2):
     return [(p1[0]+p2[0])/2]
 
 
-def get_rectified_images(imgs, target, labels=None, is_file=False, get_bbox=False, get_eyes=False):
+def get_rectified_images(imgs, target, labels=None, is_file=False, get_bbox=False, get_eyes=False, im_shape=(256,256)):
     """Apply Piecewise Affine Transformations
 
     Images will be transformed according to source points.
@@ -130,9 +136,9 @@ def get_rectified_images(imgs, target, labels=None, is_file=False, get_bbox=Fals
     """
     if labels is None:
         if get_bbox:
-            sources, bbox = detection_net(imgs, name='300w', is_file=is_file, get_bbox=get_bbox)  # Returns (256, 256) coordinates
+            sources, bbox = detection_net(imgs, name='300w', is_file=is_file, get_bbox=get_bbox, im_shape=im_shape)  # Returns (256, 256) coordinates
         else:
-            sources = detection_net(imgs, name='300w', is_file=is_file, get_bbox=get_bbox)  # Returns (256, 256) coordinates
+            sources = detection_net(imgs, name='300w', is_file=is_file, get_bbox=get_bbox, im_shape=im_shape)  # Returns (256, 256) coordinates
     else:
         sources = labels
 
@@ -146,16 +152,18 @@ def get_rectified_images(imgs, target, labels=None, is_file=False, get_bbox=Fals
 
         if is_file:
             image = Image.open(imgs[i])
+            img_sizes.append(image.size)
+            image = np.asarray(image)
+            image = resize(image, im_shape)
         else:
             image = imgs[i]
-        img_sizes.append(image.size)
-        image = np.asarray(image)
-        image = resize(image, (256, 256))
+            img_sizes.append(image.size)
+            image = np.asarray(image)
         images.append(image)
 
     srcs = [i[:27, :] if i is not None else None for i in sources]
 
-    outputs, tforms = affine_transform(images, srcs, target)
+    outputs, tforms = affine_transform(images, srcs, target,im_shape=im_shape)
 
     if get_eyes:
         # 37,40 left + 43,46 right

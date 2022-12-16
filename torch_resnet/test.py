@@ -6,12 +6,6 @@ from affine import predict
 from config import config as cfg
 
 
-def test_eval(img_paths, ground, is_file=True):
-    preds = predict(img_paths, cfg.CLEFT_TARGET, is_file=is_file)
-    nme, nme_list = interocular_nme(preds, ground, eyes, get_individual=True)   # FIXME Get Eyes from 300W Prediction
-    print(nme)
-
-
 def test_predict(img_paths, is_file=True):
     preds = predict(img_paths, cfg.DATA.TARGET, is_file=is_file)
 

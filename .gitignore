@@ -7,3 +7,8 @@
 /rectify/weights/
 /torch_hrnet_rectify/weights/
 /torch_resnet/weights/
+/data/WFLW_test/
+/torch_resnet/log/
+/data/WFLW_annotations/
+/data/WFLW_images/
+/data/WFLW_train/
